@@ -1,0 +1,1836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Audio Bookmark Recorder</title>
+  <meta name="description" content="Clean offline voice recorder PWA with yellow highlight range segments and millisecond-precision audio bookmarks.">
+  <meta name="theme-color" content="#121212">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AudioRecord">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+  <style>
+    :root {
+      --bg: #121212;
+      --card-bg: #1a1a1a;
+      --card-border: #262626;
+      --card-hover: #222222;
+      --text: #ffffff;
+      --text-muted: #a3a3a3;
+      --text-dim: #737373;
+      --crimson: #e11d48;
+      --crimson-dark: #be123c;
+      --crimson-glow: rgba(225, 29, 72, 0.4);
+      --yellow: #eab308;
+      --yellow-light: #facc15;
+      --yellow-glow: rgba(234, 179, 8, 0.35);
+      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      background-size: 24px 24px;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    }
+
+    .font-mono {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #161616; }
+    ::-webkit-scrollbar-thumb { background: #333333; border-radius: 9999px; }
+
+    /* Header */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: rgba(18, 18, 18, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      padding: 12px 16px;
+    }
+    .header-inner {
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #e11d48, #991b1b);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px var(--crimson-glow);
+    }
+    .brand-title {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .brand-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-header {
+      background: #1e1e1e;
+      border: 1px solid #333333;
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn-header:hover {
+      background: #282828;
+      border-color: #444444;
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Voice Recorder Deck */
+    .deck-card {
+      background: #161616;
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
+      position: relative;
+      overflow: hidden;
+    }
+    .deck-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #737373;
+    }
+    .status-dot.recording {
+      background: var(--crimson);
+      box-shadow: 0 0 12px var(--crimson);
+      animation: pulse 1.2s infinite;
+    }
+    .status-dot.playing {
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+    }
+
+    /* Timer Display */
+    .timer-wrap {
+      text-align: center;
+      padding: 20px 0 14px;
+    }
+    .timer-digits {
+      font-size: 56px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+      line-height: 1;
+    }
+    @media (min-width: 640px) {
+      .timer-digits { font-size: 72px; }
+    }
+    .timer-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    /* Visualizer Canvas */
+    .visualizer-wrap {
+      background: #131313;
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 8px;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+    canvas#visualizer {
+      width: 100%;
+      height: 96px;
+      display: block;
+    }
+
+    /* Big Hardware Controls */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 28px;
+      padding-top: 6px;
+    }
+    .btn-record-wrap, .btn-flag-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    /* Record Button */
+    .btn-record {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #e11d48, #be123c);
+      border: none;
+      color: #ffffff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px var(--crimson-glow);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    @media (min-width: 640px) {
+      .btn-record { width: 92px; height: 92px; }
+    }
+    .btn-record:active { transform: scale(0.94); }
+    .btn-record.active {
+      box-shadow: 0 0 0 10px rgba(225, 29, 72, 0.25), 0 0 30px var(--crimson);
+      animation: record-pulse 1.6s infinite ease-in-out;
+    }
+
+    /* Highlight Range Toggle Button */
+    .btn-flag {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: #1e1e1e;
+      border: 2px solid rgba(234, 179, 8, 0.4);
+      color: var(--yellow);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    }
+    @media (min-width: 640px) {
+      .btn-flag { width: 76px; height: 76px; }
+    }
+    .btn-flag:hover {
+      background: rgba(234, 179, 8, 0.15);
+      border-color: var(--yellow);
+    }
+    .btn-flag:active { transform: scale(0.92); }
+    .btn-flag.active-marking {
+      background: var(--yellow);
+      color: #000000;
+      border-color: #ffffff;
+      box-shadow: 0 0 24px var(--yellow-glow);
+      animation: yellow-pulse 1.2s infinite;
+    }
+
+    /* Custom In-App Interactive Audio Player */
+    .player-card {
+      background: #161616;
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .player-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #222222;
+    }
+    .player-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #ffffff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .player-times {
+      font-size: 13px;
+      font-weight: 700;
+      background: #111111;
+      padding: 4px 10px;
+      border-radius: 8px;
+      border: 1px solid #222222;
+    }
+
+    /* Progress Timeline Bar */
+    .timeline-container {
+      position: relative;
+      height: 42px;
+      background: #1e1e1e;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      user-select: none;
+    }
+    .timeline-played {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, rgba(225, 29, 72, 0.3), rgba(225, 29, 72, 0.5));
+      pointer-events: none;
+      transition: width 0.05s linear;
+    }
+    .timeline-playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #ffffff;
+      pointer-events: none;
+      z-index: 30;
+      transform: translateX(-50%);
+    }
+    .timeline-playhead::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--crimson);
+      border: 1.5px solid #ffffff;
+    }
+
+    /* Yellow Highlight Segments on Timeline */
+    .timeline-segment {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: rgba(234, 179, 8, 0.35);
+      border-left: 2px solid var(--yellow);
+      border-right: 2px solid var(--yellow);
+      z-index: 15;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .timeline-segment:hover {
+      background: rgba(234, 179, 8, 0.55);
+    }
+    .timeline-segment-label {
+      position: absolute;
+      top: 2px;
+      left: 4px;
+      font-size: 9px;
+      font-weight: 800;
+      background: var(--yellow);
+      color: #000000;
+      padding: 1px 4px;
+      border-radius: 4px;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    /* Player Transport Controls */
+    .transport-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .speed-pills {
+      display: flex;
+      background: #111111;
+      padding: 2px;
+      border-radius: 10px;
+      border: 1px solid #242424;
+    }
+    .btn-speed {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn-speed.active {
+      background: var(--crimson);
+      color: #ffffff;
+    }
+    .playback-buttons {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-transport {
+      background: #222222;
+      border: 1px solid #2e2e2e;
+      color: #ffffff;
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-transport:hover { background: #2a2a2a; }
+    .btn-play-pause {
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #e11d48, #be123c);
+      border: none;
+      box-shadow: 0 4px 16px var(--crimson-glow);
+    }
+
+    /* Dashboard & Segments List */
+    .dashboard-card {
+      background: #161616;
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+    }
+    .dashboard-header {
+      padding: 14px 18px;
+      background: #191919;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .dashboard-title {
+      font-size: 14px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .count-badge {
+      font-size: 11px;
+      background: #242424;
+      color: var(--yellow);
+      border: 1px solid rgba(234, 179, 8, 0.3);
+      padding: 2px 7px;
+      border-radius: 999px;
+    }
+
+    /* SOLID OPAQUE SEGMENT ITEM CARDS (No text bleed through) */
+    .segments-list {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 440px;
+      overflow-y: auto;
+    }
+    .segment-card {
+      background-color: #1a1a1a; /* Solid opaque dark card background */
+      border: 1px solid #2a2a2a;
+      border-radius: 14px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+    @media (min-width: 640px) {
+      .segment-card {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+      }
+    }
+    .segment-card:hover {
+      border-color: #3e3e3e;
+      background-color: #1e1e1e;
+    }
+    .segment-card.active-segment {
+      border-color: var(--yellow);
+      background-color: #201d14; /* Solid warm dark tone */
+    }
+
+    /* Left Zone of Segment Card */
+    .segment-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+      min-width: 0;
+    }
+    .btn-timestamp {
+      background: #242424;
+      border: 1px solid rgba(234, 179, 8, 0.3);
+      color: var(--yellow);
+      padding: 7px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+    .btn-timestamp:hover {
+      background: var(--yellow);
+      color: #000000;
+    }
+    .segment-details {
+      min-width: 0;
+      flex: 1;
+    }
+    .segment-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #ffffff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .segment-note {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Dedicated Non-Overlapping Right Zone */
+    .segment-right {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-shrink: 0;
+      padding-top: 6px;
+      border-top: 1px solid #262626;
+    }
+    @media (min-width: 640px) {
+      .segment-right {
+        padding-top: 0;
+        border-top: none;
+        border-left: 1px solid #282828;
+        padding-left: 12px;
+      }
+    }
+    .range-duration-badge {
+      background: rgba(234, 179, 8, 0.18);
+      border: 1px solid rgba(234, 179, 8, 0.35);
+      color: #fde047;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .btn-card-action {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .btn-card-action:hover {
+      background: #2a2a2a;
+      color: #ffffff;
+    }
+    .btn-card-action.delete:hover {
+      background: rgba(225, 29, 72, 0.2);
+      color: var(--crimson);
+    }
+    .btn-card-action.active-loop {
+      background: var(--yellow);
+      color: #000000;
+    }
+
+    /* Visual Toast */
+    #toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: #1f1d14;
+      border: 1px solid var(--yellow);
+      color: var(--yellow-light);
+      padding: 8px 18px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s ease;
+      z-index: 100;
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Modal Sheet */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.8);
+      backdrop-filter: blur(8px);
+      z-index: 90;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-backdrop.open {
+      display: flex;
+    }
+    .modal-card {
+      background: #181818;
+      border: 1px solid #333333;
+      border-radius: 20px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+      overflow: hidden;
+      animation: modal-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .modal-head {
+      padding: 14px 18px;
+      background: #141414;
+      border-bottom: 1px solid #262626;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-body {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .form-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+    .form-input {
+      background: #121212;
+      border: 1px solid #333333;
+      color: #ffffff;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      outline: none;
+    }
+    .form-input:focus { border-color: var(--crimson); }
+
+    /* Animations */
+    @keyframes record-pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.7); }
+      50% { transform: scale(1.03); box-shadow: 0 0 0 14px rgba(225, 29, 72, 0); }
+    }
+    @keyframes yellow-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.8); }
+      50% { box-shadow: 0 0 0 12px rgba(234, 179, 8, 0); }
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    @keyframes modal-pop { 0% { transform: scale(0.95); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+  </style>
+</head>
+<body>
+
+  <!-- Audio Element -->
+  <audio id="native-audio" preload="auto"></audio>
+
+  <!-- Top Application Bar -->
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <div class="brand-icon">
+          <!-- Mic SVG Icon -->
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-title">Audio Bookmark Recorder</div>
+          <div class="brand-sub">Offline PWA Voice & Yellow Segment Mark</div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="btn-library" class="btn-header">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+          <span>Library</span>
+          <span id="library-count" style="background:#282828; padding:1px 6px; border-radius:999px; font-size:10px;">0</span>
+        </button>
+
+        <button id="btn-settings" class="btn-header" title="Settings">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main View -->
+  <main>
+    <!-- Hardware Voice Recorder Deck -->
+    <section class="deck-card">
+      <div class="deck-status">
+        <div class="status-badge">
+          <span id="status-dot" class="status-dot"></span>
+          <span id="status-text">STANDBY</span>
+        </div>
+        <button id="btn-load-demo" style="background:none; border:none; color:var(--yellow); font-size:12px; font-weight:700; cursor:pointer;">
+          ⚡ Load Sample Memo
+        </button>
+      </div>
+
+      <div class="timer-wrap">
+        <div id="deck-timer" class="timer-digits font-mono">00:00.000</div>
+        <div id="timer-sublabel" class="timer-label font-mono">STANDBY POSITION</div>
+      </div>
+
+      <!-- Oscilloscope / Frequency Waveform Visualizer -->
+      <div class="visualizer-wrap" id="visualizer-container">
+        <canvas id="visualizer"></canvas>
+      </div>
+
+      <!-- Main Action Buttons -->
+      <div class="controls-row">
+        <!-- Big Record / Stop Button -->
+        <div class="btn-record-wrap">
+          <button id="btn-record" class="btn-record" title="Record Voice">
+            <svg id="icon-mic" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+            <svg id="icon-stop" width="32" height="32" viewBox="0 0 24 24" fill="#ffffff" style="display:none;"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          </button>
+          <span id="record-label" class="btn-label">Record Voice</span>
+        </div>
+
+        <!-- Highlight Range Toggle Button (1st tap: start, 2nd tap: end) -->
+        <div class="btn-flag-wrap">
+          <button id="btn-range-highlight" class="btn-flag" title="1st tap: Set Start, 2nd tap: Lock End Segment">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+          </button>
+          <span id="flag-label" class="btn-label" style="color:var(--yellow);">Mark Segment</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Custom In-App HTML5 Interactive Audio Player -->
+    <section class="player-card" id="player-card" style="display:none;">
+      <div class="player-header">
+        <div class="player-title" id="player-memo-title">Recording Title</div>
+        <div class="player-times font-mono">
+          <span id="player-cur-time" style="color:var(--crimson);">00:00.000</span>
+          <span style="color:#666;">/</span>
+          <span id="player-total-time" style="color:#aaa;">00:00.000</span>
+        </div>
+      </div>
+
+      <!-- Scrubbable Visual Timeline Bar with Yellow Range Overlays -->
+      <div class="timeline-container" id="timeline-container">
+        <div class="timeline-played" id="timeline-played" style="width:0%;"></div>
+        <div class="timeline-playhead" id="timeline-playhead" style="left:0%;"></div>
+        <!-- Yellow segment overlays injected dynamically -->
+        <div id="timeline-segments-layer"></div>
+      </div>
+
+      <!-- Player Controls -->
+      <div class="transport-row">
+        <!-- Speed Selector -->
+        <div class="speed-pills">
+          <button class="btn-speed" data-speed="0.75">0.75x</button>
+          <button class="btn-speed active" data-speed="1.0">1x</button>
+          <button class="btn-speed" data-speed="1.25">1.25x</button>
+          <button class="btn-speed" data-speed="1.5">1.5x</button>
+          <button class="btn-speed" data-speed="2.0">2x</button>
+        </div>
+
+        <!-- Transport Buttons -->
+        <div class="playback-buttons">
+          <button id="btn-rewind" class="btn-transport" title="Rewind 5s">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+
+          <button id="btn-play-pause" class="btn-transport btn-play-pause" title="Play/Pause">
+            <svg id="icon-play" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <svg id="icon-pause" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          </button>
+
+          <button id="btn-forward" class="btn-transport" title="Forward 5s">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+          </button>
+        </div>
+
+        <button id="btn-player-mark" class="btn-header" style="color:var(--yellow); border-color:rgba(234, 179, 8, 0.4);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+          <span id="player-mark-label">Mark Segment</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Bookmarks Dashboard -->
+    <section class="dashboard-card">
+      <div class="dashboard-header">
+        <div class="dashboard-title">
+          <span>Highlighted Segments & Bookmarks</span>
+          <span id="segments-count" class="count-badge font-mono">0</span>
+        </div>
+        <button id="btn-export-markdown" class="btn-header" style="font-size:11px;">
+          Export Notes
+        </button>
+      </div>
+
+      <!-- Segment items with solid #1a1a1a background & non-overlapping actions -->
+      <div class="segments-list" id="segments-list">
+        <div id="segments-empty" style="text-align:center; padding:36px 16px; color:#777;">
+          <p style="font-weight:700; color:#ccc; margin-bottom:4px;">No yellow segments marked yet</p>
+          <p style="font-size:12px;">Use the Highlight Range Toggle button: tap once to set start, tap again to lock end!</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Visual Toast -->
+  <div id="toast" class="font-mono">✓ Segment Saved</div>
+
+  <!-- Settings Modal -->
+  <div class="modal-backdrop" id="modal-settings">
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong style="font-size:14px;">Recorder & Tag Settings</strong>
+        <button id="btn-close-settings" style="background:none; border:none; color:#888; font-size:18px; cursor:pointer;">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Auto-generated Label Prefix</label>
+          <input type="text" id="setting-prefix" class="form-input" value="Segment" maxlength="20">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Auto-numbering (e.g. Segment 1, Segment 2)</label>
+          <select id="setting-autonumber" class="form-input">
+            <option value="true">Enabled (Segment 1, 2...)</option>
+            <option value="false">Disabled (Single prefix)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Skip Forward/Backward Interval</label>
+          <select id="setting-skip" class="form-input">
+            <option value="3">3 seconds</option>
+            <option value="5" selected>5 seconds</option>
+            <option value="10">10 seconds</option>
+          </select>
+        </div>
+        <button id="btn-save-settings" class="btn-header" style="background:var(--crimson); color:#fff; border:none; justify-content:center; padding:10px;">
+          Save Settings
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Library Modal -->
+  <div class="modal-backdrop" id="modal-library">
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong style="font-size:14px;">Recordings Library (IndexedDB)</strong>
+        <button id="btn-close-library" style="background:none; border:none; color:#888; font-size:18px; cursor:pointer;">✕</button>
+      </div>
+      <div class="modal-body" id="library-list" style="max-height:60vh; overflow-y:auto;">
+        <!-- Library items inserted dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Inline Application Logic (Vanilla JavaScript) -->
+  <script>
+    (function() {
+      // IndexedDB Storage
+      const DB_NAME = 'AudioBookmarkRecorderDB';
+      const DB_VERSION = 1;
+      const STORE_NAME = 'recordings';
+
+      function openDB() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, DB_VERSION);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            }
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function dbSaveRecording(rec) {
+        const db = await openDB();
+        return new Promise((res, rej) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          tx.objectStore(STORE_NAME).put(rec);
+          tx.oncomplete = () => res();
+          tx.onerror = () => rej(tx.error);
+        });
+      }
+
+      async function dbGetAllRecordings() {
+        const db = await openDB();
+        return new Promise((res, rej) => {
+          const tx = db.transaction(STORE_NAME, 'readonly');
+          const req = tx.objectStore(STORE_NAME).getAll();
+          req.onsuccess = () => {
+            const list = req.result || [];
+            list.sort((a,b) => b.createdAt - a.createdAt);
+            res(list);
+          };
+          req.onerror = () => rej(req.error);
+        });
+      }
+
+      async function dbDeleteRecording(id) {
+        const db = await openDB();
+        return new Promise((res, rej) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          tx.objectStore(STORE_NAME).delete(id);
+          tx.oncomplete = () => res();
+          tx.onerror = () => rej(tx.error);
+        });
+      }
+
+      // Safe Millisecond Timestamp Formatter
+      function formatTimestamp(seconds, includeMs = true) {
+        if (typeof seconds !== 'number' || isNaN(seconds) || !isFinite(seconds) || seconds <= 0) {
+          return includeMs ? '00:00.000' : '00:00';
+        }
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        const ms = Math.floor((seconds % 1) * 1000);
+        const mm = String(m).padStart(2, '0');
+        const ss = String(s).padStart(2, '0');
+        const mmm = String(ms).padStart(3, '0');
+        return includeMs ? `${mm}:${ss}.${mmm}` : `${mm}:${ss}`;
+      }
+
+      // Application State
+      let recordings = [];
+      let activeRecording = null;
+      let activeAudioUrl = null;
+      let isRecording = false;
+      let isPlaying = false;
+      let recordingDuration = 0;
+      let recordStartTime = 0;
+      let recordInterval = null;
+      let mediaRecorder = null;
+      let audioChunks = [];
+      let tempBookmarks = [];
+      let activeRangeStart = null;
+      let activeLoopSegmentId = null;
+      let skipInterval = 5;
+      let tagPrefix = 'Segment';
+      let useAutoNumbering = true;
+
+      // Audio & Visualizer context
+      const audioElement = document.getElementById('native-audio');
+      let audioContext = null;
+      let analyserNode = null;
+      let animFrameId = null;
+
+      // DOM Elements
+      const deckTimer = document.getElementById('deck-timer');
+      const timerSublabel = document.getElementById('timer-sublabel');
+      const statusDot = document.getElementById('status-dot');
+      const statusText = document.getElementById('status-text');
+      const btnRecord = document.getElementById('btn-record');
+      const iconMic = document.getElementById('icon-mic');
+      const iconStop = document.getElementById('icon-stop');
+      const recordLabel = document.getElementById('record-label');
+      const btnRangeHighlight = document.getElementById('btn-range-highlight');
+      const flagLabel = document.getElementById('flag-label');
+      const playerCard = document.getElementById('player-card');
+      const playerMemoTitle = document.getElementById('player-memo-title');
+      const playerCurTime = document.getElementById('player-cur-time');
+      const playerTotalTime = document.getElementById('player-total-time');
+      const timelineContainer = document.getElementById('timeline-container');
+      const timelinePlayed = document.getElementById('timeline-played');
+      const timelinePlayhead = document.getElementById('timeline-playhead');
+      const timelineSegmentsLayer = document.getElementById('timeline-segments-layer');
+      const btnPlayPause = document.getElementById('btn-play-pause');
+      const iconPlay = document.getElementById('icon-play');
+      const iconPause = document.getElementById('icon-pause');
+      const btnRewind = document.getElementById('btn-rewind');
+      const btnForward = document.getElementById('btn-forward');
+      const btnPlayerMark = document.getElementById('btn-player-mark');
+      const playerMarkLabel = document.getElementById('player-mark-label');
+      const segmentsList = document.getElementById('segments-list');
+      const segmentsCount = document.getElementById('segments-count');
+      const segmentsEmpty = document.getElementById('segments-empty');
+      const toastEl = document.getElementById('toast');
+      const visualizerCanvas = document.getElementById('visualizer');
+      const visualizerCtx = visualizerCanvas.getContext('2d');
+      const libraryCount = document.getElementById('library-count');
+
+      // Toast feedback
+      let toastTimer = null;
+      function showToast(msg) {
+        if (toastTimer) clearTimeout(toastTimer);
+        toastEl.textContent = msg;
+        toastEl.classList.add('show');
+        toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+      }
+
+      // Initialize Settings
+      try {
+        const saved = JSON.parse(localStorage.getItem('audio_bookmark_settings') || '{}');
+        if (saved.skipInterval) skipInterval = saved.skipInterval;
+        if (saved.defaultTagPrefix) tagPrefix = saved.defaultTagPrefix;
+        if (saved.useAutoNumbering !== undefined) useAutoNumbering = saved.useAutoNumbering;
+      } catch(e){}
+
+      // Initialize App & Load IndexedDB records
+      async function init() {
+        try {
+          recordings = await dbGetAllRecordings();
+          updateLibraryCount();
+          if (recordings.length > 0) {
+            selectRecording(recordings[0]);
+          }
+        } catch (e) {
+          console.warn('DB load error', e);
+        }
+        setupVisualizer();
+      }
+
+      function updateLibraryCount() {
+        libraryCount.textContent = recordings.length;
+      }
+
+      function resetMarkingState() {
+        const wasOpen = activeRangeStart !== null;
+        activeRangeStart = null;
+        btnRangeHighlight.classList.remove('active-marking');
+        flagLabel.textContent = 'Mark Segment';
+        playerMarkLabel.textContent = 'Mark Segment';
+        if (wasOpen) showToast('Open segment discarded');
+      }
+
+      function selectRecording(rec) {
+        if (activeAudioUrl) URL.revokeObjectURL(activeAudioUrl);
+        activeRecording = rec;
+        resetMarkingState();
+        activeLoopSegmentId = null;
+        isPlaying = false;
+        iconPlay.style.display = 'block';
+        iconPause.style.display = 'none';
+
+        if (rec && rec.blob) {
+          activeAudioUrl = URL.createObjectURL(rec.blob);
+          audioElement.src = activeAudioUrl;
+          playerCard.style.display = 'flex';
+          playerMemoTitle.textContent = rec.title;
+          
+          const dur = (isFinite(rec.duration) && rec.duration > 0) ? rec.duration : 0;
+          playerTotalTime.textContent = formatTimestamp(dur, true);
+          playerCurTime.textContent = '00:00.000';
+          deckTimer.textContent = '00:00.000';
+          timerSublabel.textContent = 'PLAYHEAD POSITION';
+          renderTimelineSegments();
+          renderSegmentsList();
+        } else {
+          playerCard.style.display = 'none';
+        }
+      }
+
+      // Start / Stop MediaRecorder
+      async function toggleRecording() {
+        if (isRecording) {
+          stopRecording();
+        } else {
+          startRecording();
+        }
+      }
+
+      function describeMicError(err) {
+        const name = (err && err.name) || '';
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+          return 'Microphone access was blocked. Allow the microphone for this site in your browser settings, then try again.';
+        }
+        if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+          return 'No microphone was found on this device.';
+        }
+        if (name === 'NotReadableError' || name === 'TrackStartError') {
+          return 'The microphone is being used by another app. Close it and try again.';
+        }
+        if (name === 'SecurityError') {
+          return 'The browser blocked the microphone. Open this app over HTTPS.';
+        }
+        if (name === 'NotSupportedError') {
+          return 'This browser cannot record audio in a supported format.';
+        }
+        return 'Could not start recording: ' + ((err && (err.message || err.name)) || 'unknown error');
+      }
+
+      async function startRecording() {
+        let stream = null;
+        try {
+          if (!window.isSecureContext || !/^https?:$/.test(location.protocol)) {
+            alert('Microphone access needs a secure page. Open this app from an HTTPS link (or localhost), not as a downloaded or local file.');
+            return;
+          }
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+            alert('This browser does not support audio recording.');
+            return;
+          }
+          if (!audioElement.paused) audioElement.pause();
+          stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+          
+          // Audio visualizer setup
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const source = audioContext.createMediaStreamSource(stream);
+          analyserNode = audioContext.createAnalyser();
+          analyserNode.fftSize = 256;
+          source.connect(analyserNode);
+
+          const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+          const chosenType = preferredTypes.find(t => MediaRecorder.isTypeSupported(t));
+          mediaRecorder = chosenType ? new MediaRecorder(stream, { mimeType: chosenType }) : new MediaRecorder(stream);
+          const mimeType = mediaRecorder.mimeType || chosenType || 'audio/webm';
+          audioChunks = [];
+          tempBookmarks = [];
+          resetMarkingState();
+
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) audioChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            const finalDuration = (performance.now() - recordStartTime) / 1000;
+            const audioBlob = new Blob(audioChunks, { type: mimeType });
+            
+            const newRec = {
+              id: 'rec_' + Date.now(),
+              title: 'Voice Memo ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }),
+              createdAt: Date.now(),
+              duration: finalDuration,
+              blob: audioBlob,
+              mimeType,
+              bookmarks: tempBookmarks,
+              waveformPeaks: Array.from({length: 48}, () => 0.2 + Math.random() * 0.6)
+            };
+
+            await dbSaveRecording(newRec);
+            recordings.unshift(newRec);
+            updateLibraryCount();
+            selectRecording(newRec);
+            stream.getTracks().forEach(t => t.stop());
+            if (audioContext && audioContext.state !== 'closed') audioContext.close();
+          };
+
+          recordStartTime = performance.now();
+          mediaRecorder.start(100);
+          isRecording = true;
+
+          // UI update
+          btnRecord.classList.add('active');
+          iconMic.style.display = 'none';
+          iconStop.style.display = 'block';
+          recordLabel.textContent = 'Stop Recording';
+          statusDot.className = 'status-dot recording';
+          statusText.textContent = 'LIVE RECORDING (MIC ACTIVE)';
+          timerSublabel.textContent = 'ELAPSED RECORDING TIME';
+
+          recordInterval = setInterval(() => {
+            const elapsed = (performance.now() - recordStartTime) / 1000;
+            recordingDuration = elapsed;
+            deckTimer.textContent = formatTimestamp(elapsed, true);
+          }, 40);
+
+        } catch (err) {
+          if (stream) stream.getTracks().forEach(t => t.stop());
+          if (audioContext && audioContext.state !== 'closed') audioContext.close();
+          alert(describeMicError(err));
+        }
+      }
+
+      function stopRecording() {
+        if (!isRecording) return;
+        clearInterval(recordInterval);
+        isRecording = false;
+        btnRecord.classList.remove('active');
+        iconMic.style.display = 'block';
+        iconStop.style.display = 'none';
+        recordLabel.textContent = 'Record Voice';
+        statusDot.className = 'status-dot';
+        statusText.textContent = 'VOICE RECORDER STANDBY';
+
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+        }
+      }
+
+      // Range Highlighting (1st tap: start, 2nd tap: end)
+      function toggleRangeHighlight() {
+        let nowSec = 0;
+        if (isRecording) {
+          nowSec = (performance.now() - recordStartTime) / 1000;
+        } else if (audioElement && !isNaN(audioElement.currentTime)) {
+          nowSec = audioElement.currentTime;
+        }
+
+        if (activeRangeStart === null) {
+          // 1st Tap: Start segment
+          activeRangeStart = nowSec;
+          btnRangeHighlight.classList.add('active-marking');
+          flagLabel.textContent = '● Lock End';
+          playerMarkLabel.textContent = '● Lock End';
+          showToast('⚡ Segment Started at ' + formatTimestamp(nowSec, true) + ' (Tap again to lock)');
+          renderTimelineSegments();
+        } else {
+          // 2nd Tap: End segment and lock
+          const start = Math.min(activeRangeStart, nowSec);
+          let end = Math.max(activeRangeStart, nowSec);
+          if (end - start < 0.25) end = start + 0.5;
+
+          const currentCount = isRecording ? tempBookmarks.length : (activeRecording?.bookmarks?.length || 0);
+          const label = useAutoNumbering ? `${tagPrefix} ${currentCount + 1}` : tagPrefix;
+
+          const newSeg = {
+            id: 'seg_' + Date.now(),
+            time: start,
+            endTime: end,
+            label: label,
+            tagColor: '#eab308',
+            createdAt: Date.now()
+          };
+
+          if (isRecording) {
+            tempBookmarks.push(newSeg);
+          } else if (activeRecording) {
+            if (!activeRecording.bookmarks) activeRecording.bookmarks = [];
+            activeRecording.bookmarks.push(newSeg);
+            activeRecording.bookmarks.sort((a,b) => a.time - b.time);
+            dbSaveRecording(activeRecording);
+            renderTimelineSegments();
+            renderSegmentsList();
+          }
+
+          activeRangeStart = null;
+          btnRangeHighlight.classList.remove('active-marking');
+          flagLabel.textContent = 'Mark Segment';
+          playerMarkLabel.textContent = 'Mark Segment';
+          showToast(`✓ Segment Locked: ${formatTimestamp(start, true)} → ${formatTimestamp(end, true)}`);
+        }
+      }
+
+      // Playback Controls
+      function togglePlayPause() {
+        if (!audioElement.src) return;
+        if (audioElement.paused) {
+          audioElement.play().then(() => {
+            isPlaying = true;
+            iconPlay.style.display = 'none';
+            iconPause.style.display = 'block';
+            statusDot.className = 'status-dot playing';
+            statusText.textContent = 'PLAYBACK ACTIVE';
+          }).catch(e => console.warn(e));
+        } else {
+          audioElement.pause();
+          isPlaying = false;
+          iconPlay.style.display = 'block';
+          iconPause.style.display = 'none';
+          statusDot.className = 'status-dot';
+          statusText.textContent = 'PLAYBACK PAUSED';
+        }
+      }
+
+      // Click-to-Jump Range Functionality
+      function jumpToTime(timeSeconds) {
+        if (!isFinite(timeSeconds) || isNaN(timeSeconds)) return;
+        audioElement.currentTime = timeSeconds;
+        playerCurTime.textContent = formatTimestamp(timeSeconds, true);
+        deckTimer.textContent = formatTimestamp(timeSeconds, true);
+        if (audioElement.paused) {
+          togglePlayPause();
+        }
+      }
+
+      audioElement.ontimeupdate = () => {
+        const cur = audioElement.currentTime;
+        const dur = (isFinite(audioElement.duration) && audioElement.duration > 0)
+          ? audioElement.duration
+          : (activeRecording?.duration || 0);
+
+        playerCurTime.textContent = formatTimestamp(cur, true);
+        deckTimer.textContent = formatTimestamp(cur, true);
+
+        if (dur > 0) {
+          const pct = Math.min(100, Math.max(0, (cur / dur) * 100));
+          timelinePlayed.style.width = pct + '%';
+          timelinePlayhead.style.left = pct + '%';
+        }
+
+        // Loop segment enforcement
+        if (activeLoopSegmentId && activeRecording) {
+          const seg = activeRecording.bookmarks.find(b => b.id === activeLoopSegmentId);
+          if (seg && seg.endTime && cur >= seg.endTime) {
+            audioElement.currentTime = seg.time;
+          }
+        }
+      };
+
+      audioElement.onloadedmetadata = () => {
+        const d = audioElement.duration;
+        if (isFinite(d) && !isNaN(d) && d > 0) {
+          playerTotalTime.textContent = formatTimestamp(d, true);
+        } else if (activeRecording?.duration) {
+          playerTotalTime.textContent = formatTimestamp(activeRecording.duration, true);
+        } else {
+          playerTotalTime.textContent = '00:00';
+        }
+        renderTimelineSegments();
+      };
+
+      audioElement.onended = () => {
+        isPlaying = false;
+        iconPlay.style.display = 'block';
+        iconPause.style.display = 'none';
+        statusDot.className = 'status-dot';
+        statusText.textContent = 'STANDBY';
+        activeLoopSegmentId = null;
+      };
+
+      // Timeline Scrubber Click & Seek
+      timelineContainer.onclick = (e) => {
+        const dur = (isFinite(audioElement.duration) && audioElement.duration > 0)
+          ? audioElement.duration
+          : (activeRecording?.duration || 0);
+        if (!dur || dur <= 0) return;
+        const rect = timelineContainer.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        jumpToTime(ratio * dur);
+      };
+
+      // Render Yellow Range Overlays on Timeline
+      function renderTimelineSegments() {
+        timelineSegmentsLayer.innerHTML = '';
+        const dur = (isFinite(audioElement.duration) && audioElement.duration > 0)
+          ? audioElement.duration
+          : (activeRecording?.duration || 0);
+        if (!dur || dur <= 0) return;
+
+        const bms = activeRecording?.bookmarks || [];
+        bms.forEach(bm => {
+          if (bm.endTime && bm.endTime > bm.time) {
+            const left = Math.min(100, (bm.time / dur) * 100);
+            const right = Math.min(100, (bm.endTime / dur) * 100);
+            const width = Math.max(1, right - left);
+
+            const seg = document.createElement('div');
+            seg.className = 'timeline-segment';
+            seg.style.left = left + '%';
+            seg.style.width = width + '%';
+            seg.title = `Jump to ${bm.label} (${formatTimestamp(bm.time, true)})`;
+            seg.onclick = (e) => {
+              e.stopPropagation();
+              jumpToTime(bm.time);
+            };
+
+            const lbl = document.createElement('div');
+            lbl.className = 'timeline-segment-label';
+            lbl.textContent = bm.label;
+            seg.appendChild(lbl);
+            timelineSegmentsLayer.appendChild(seg);
+          }
+        });
+      }
+
+      // Render Segments in Dashboard List (Solid #1a1a1a cards with dedicated right container)
+      function renderSegmentsList() {
+        segmentsList.innerHTML = '';
+        const bms = activeRecording?.bookmarks || [];
+        segmentsCount.textContent = bms.length;
+
+        if (bms.length === 0) {
+          segmentsEmpty.style.display = 'block';
+          segmentsList.appendChild(segmentsEmpty);
+          return;
+        }
+        segmentsEmpty.style.display = 'none';
+
+        bms.forEach(bm => {
+          const isRange = bm.endTime && bm.endTime > bm.time;
+          const durSec = isRange ? (bm.endTime - bm.time).toFixed(2) : null;
+
+          const card = document.createElement('div');
+          card.className = 'segment-card';
+          if (activeLoopSegmentId === bm.id) card.classList.add('active-segment');
+
+          // Left zone
+          const left = document.createElement('div');
+          left.className = 'segment-left';
+
+          const btnJump = document.createElement('button');
+          btnJump.className = 'btn-timestamp font-mono';
+          btnJump.innerHTML = `▶ ${formatTimestamp(bm.time, true)}${isRange ? ` → ${formatTimestamp(bm.endTime, true)}` : ''}`;
+          btnJump.onclick = () => jumpToTime(bm.time);
+
+          const details = document.createElement('div');
+          details.className = 'segment-details';
+          details.innerHTML = `
+            <div class="segment-name">
+              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#eab308;"></span>
+              <span>${bm.label}</span>
+            </div>
+            ${bm.note ? `<div class="segment-note">${bm.note}</div>` : ''}
+          `;
+
+          left.appendChild(btnJump);
+          left.appendChild(details);
+
+          // Right zone: Dedicated non-overlapping container
+          const right = document.createElement('div');
+          right.className = 'segment-right';
+
+          if (durSec) {
+            const badge = document.createElement('span');
+            badge.className = 'range-duration-badge font-mono';
+            badge.textContent = `${durSec}s range`;
+            right.appendChild(badge);
+          }
+
+          // Loop button
+          if (isRange) {
+            const btnLoop = document.createElement('button');
+            btnLoop.className = 'btn-card-action' + (activeLoopSegmentId === bm.id ? ' active-loop' : '');
+            btnLoop.title = 'Loop Segment';
+            btnLoop.innerHTML = '🔁';
+            btnLoop.onclick = () => {
+              activeLoopSegmentId = activeLoopSegmentId === bm.id ? null : bm.id;
+              if (activeLoopSegmentId) jumpToTime(bm.time);
+              renderSegmentsList();
+            };
+            right.appendChild(btnLoop);
+          }
+
+          // Delete button
+          const btnDel = document.createElement('button');
+          btnDel.className = 'btn-card-action delete';
+          btnDel.title = 'Delete Segment';
+          btnDel.innerHTML = '🗑️';
+          btnDel.onclick = async () => {
+            activeRecording.bookmarks = activeRecording.bookmarks.filter(b => b.id !== bm.id);
+            await dbSaveRecording(activeRecording);
+            renderTimelineSegments();
+            renderSegmentsList();
+          };
+          right.appendChild(btnDel);
+
+          card.appendChild(left);
+          card.appendChild(right);
+          segmentsList.appendChild(card);
+        });
+      }
+
+      // Visualizer Canvas Animation
+      function setupVisualizer() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = visualizerCanvas.getBoundingClientRect();
+        visualizerCanvas.width = (rect.width || 600) * dpr;
+        visualizerCanvas.height = 96 * dpr;
+        visualizerCtx.scale(dpr, dpr);
+
+        function draw() {
+          animFrameId = requestAnimationFrame(draw);
+          const w = rect.width || 600;
+          const h = 96;
+          visualizerCtx.clearRect(0, 0, w, h);
+
+          if (isRecording && analyserNode) {
+            const buffer = new Uint8Array(analyserNode.frequencyBinCount);
+            analyserNode.getByteFrequencyData(buffer);
+            const count = 40;
+            const barWidth = 4;
+            const gap = (w - count * barWidth) / (count - 1);
+
+            for (let i = 0; i < count; i++) {
+              const val = buffer[i * 2] / 255;
+              const barH = Math.max(4, val * h * 0.85);
+              const x = i * (barWidth + gap);
+              const y = (h - barH) / 2;
+
+              visualizerCtx.fillStyle = '#e11d48';
+              visualizerCtx.fillRect(x, y, barWidth, barH);
+            }
+          } else {
+            // Static timeline preview
+            const peaks = activeRecording?.waveformPeaks || Array.from({length: 44}, (_, i) => 0.2 + 0.3 * Math.sin(i * 0.5));
+            const count = peaks.length;
+            const barWidth = 4;
+            const gap = (w - count * barWidth) / (count - 1);
+
+            peaks.forEach((p, i) => {
+              const barH = Math.max(4, p * h * 0.7);
+              const x = i * (barWidth + gap);
+              const y = (h - barH) / 2;
+              visualizerCtx.fillStyle = '#333333';
+              visualizerCtx.fillRect(x, y, barWidth, barH);
+            });
+          }
+        }
+        draw();
+      }
+
+      // Preloaded Realistic Demo Voice Note Synthesizer
+      document.getElementById('btn-load-demo').onclick = async () => {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const duration = 16;
+        const numSamples = audioCtx.sampleRate * duration;
+        const buffer = audioCtx.createBuffer(1, numSamples, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        for (let i = 0; i < numSamples; i++) {
+          const t = i / audioCtx.sampleRate;
+          const speechMod = Math.sin(t * 3.5) * Math.cos(t * 1.2);
+          const tone = (Math.sin(2 * Math.PI * 220 * t) * 0.4 + Math.sin(2 * Math.PI * 440 * t) * 0.2);
+          data[i] = tone * Math.abs(speechMod) * 0.6;
+        }
+
+        // Convert AudioBuffer to WAV
+        const numOfChan = buffer.numberOfChannels;
+        const length = buffer.length * numOfChan * 2 + 44;
+        const out = new ArrayBuffer(length);
+        const view = new DataView(out);
+        function setUint32(d, p) { view.setUint32(p, d, true); }
+        function setUint16(d, p) { view.setUint16(p, d, true); }
+
+        setUint32(0x46464952, 0); // RIFF
+        setUint32(length - 8, 4);
+        setUint32(0x45564157, 8); // WAVE
+        setUint32(0x20746d66, 12); // fmt 
+        setUint32(16, 16);
+        setUint16(1, 20);
+        setUint16(numOfChan, 22);
+        setUint32(buffer.sampleRate, 24);
+        setUint32(buffer.sampleRate * 2 * numOfChan, 28);
+        setUint16(numOfChan * 2, 32);
+        setUint16(16, 34);
+        setUint32(0x61746164, 36); // data
+        setUint32(length - 44, 40);
+
+        let offset = 0;
+        let pos = 44;
+        while (offset < buffer.length) {
+          const s = Math.max(-1, Math.min(1, data[offset]));
+          view.setInt16(pos, s < 0 ? s * 32768 : s * 32767, true);
+          pos += 2;
+          offset++;
+        }
+
+        const wavBlob = new Blob([out], { type: 'audio/wav' });
+        audioCtx.close();
+
+        const demoRec = {
+          id: 'rec_demo_' + Date.now(),
+          title: 'Physics 101 Lecture — Exam & Formula Review',
+          createdAt: Date.now(),
+          duration: 16,
+          blob: wavBlob,
+          mimeType: 'audio/wav',
+          bookmarks: [
+            { id: 'bm1', time: 2.15, endTime: 6.80, label: 'Exam Info Segment', tagColor: '#eab308' },
+            { id: 'bm2', time: 8.20, endTime: 12.50, label: 'Thermodynamics Formula', tagColor: '#eab308' }
+          ],
+          waveformPeaks: Array.from({length: 44}, () => 0.2 + Math.random() * 0.6)
+        };
+
+        await dbSaveRecording(demoRec);
+        recordings.unshift(demoRec);
+        updateLibraryCount();
+        selectRecording(demoRec);
+        showToast('✓ Sample Lecture Memo Loaded with Yellow Segments');
+      };
+
+      // Button listeners
+      btnRecord.onclick = toggleRecording;
+      btnRangeHighlight.onclick = toggleRangeHighlight;
+      btnPlayPause.onclick = togglePlayPause;
+      btnPlayerMark.onclick = toggleRangeHighlight;
+
+      btnRewind.onclick = () => {
+        if (audioElement && !isNaN(audioElement.currentTime)) {
+          jumpToTime(Math.max(0, audioElement.currentTime - skipInterval));
+        }
+      };
+      btnForward.onclick = () => {
+        if (audioElement && !isNaN(audioElement.currentTime)) {
+          jumpToTime(audioElement.currentTime + skipInterval);
+        }
+      };
+
+      document.querySelectorAll('.btn-speed').forEach(btn => {
+        btn.onclick = () => {
+          document.querySelectorAll('.btn-speed').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          audioElement.playbackRate = parseFloat(btn.dataset.speed);
+        };
+      });
+
+      // Export Markdown notes
+      document.getElementById('btn-export-markdown').onclick = () => {
+        const bms = activeRecording?.bookmarks || [];
+        if (bms.length === 0) return alert('No segments to export.');
+        let md = `# Audio Segments Log: ${activeRecording.title}\n\n`;
+        bms.forEach(b => {
+          const isRange = b.endTime && b.endTime > b.time;
+          md += `- **${formatTimestamp(b.time, true)}${isRange ? ' → ' + formatTimestamp(b.endTime, true) : ''}** [${b.label}]\n`;
+        });
+        const blob = new Blob([md], { type: 'text/markdown' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'audio-segments.md';
+        a.click();
+      };
+
+      // Settings Modal
+      const modalSettings = document.getElementById('modal-settings');
+      document.getElementById('btn-settings').onclick = () => modalSettings.classList.add('open');
+      document.getElementById('btn-close-settings').onclick = () => modalSettings.classList.remove('open');
+      document.getElementById('btn-save-settings').onclick = () => {
+        tagPrefix = document.getElementById('setting-prefix').value.trim() || 'Segment';
+        useAutoNumbering = document.getElementById('setting-autonumber').value === 'true';
+        skipInterval = parseInt(document.getElementById('setting-skip').value);
+        localStorage.setItem('audio_bookmark_settings', JSON.stringify({ defaultTagPrefix: tagPrefix, useAutoNumbering, skipInterval }));
+        modalSettings.classList.remove('open');
+        showToast('✓ Settings Saved');
+      };
+
+      // Library Modal
+      const modalLibrary = document.getElementById('modal-library');
+      const libraryList = document.getElementById('library-list');
+      // ---- Library: download any recording as a real .wav ----
+      async function blobToWavBlob(blob) {
+        if (/wav/i.test(blob.type)) return blob; // already WAV, no conversion needed
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new Ctx();
+        try {
+          const raw = await blob.arrayBuffer();
+          const audioBuf = await new Promise((resolve, reject) => {
+            const p = ctx.decodeAudioData(raw, resolve, reject);
+            if (p && p.catch) p.catch(() => {});
+          });
+          const nCh = audioBuf.numberOfChannels, len = audioBuf.length, rate = audioBuf.sampleRate;
+          const dataSize = len * nCh * 2;
+          const out = new DataView(new ArrayBuffer(44 + dataSize));
+          const str = (o, s) => { for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); };
+          str(0, 'RIFF'); out.setUint32(4, 36 + dataSize, true); str(8, 'WAVE');
+          str(12, 'fmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
+          out.setUint16(22, nCh, true); out.setUint32(24, rate, true);
+          out.setUint32(28, rate * nCh * 2, true); out.setUint16(32, nCh * 2, true); out.setUint16(34, 16, true);
+          str(36, 'data'); out.setUint32(40, dataSize, true);
+          const chans = [];
+          for (let c = 0; c < nCh; c++) chans.push(audioBuf.getChannelData(c));
+          let off = 44;
+          for (let i = 0; i < len; i++) {
+            for (let c = 0; c < nCh; c++) {
+              const s = Math.max(-1, Math.min(1, chans[c][i]));
+              out.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+              off += 2;
+            }
+          }
+          return new Blob([out], { type: 'audio/wav' });
+        } finally {
+          if (ctx.state !== 'closed') ctx.close();
+        }
+      }
+
+      function triggerDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }
+
+      async function downloadRecordingAsWav(rec) {
+        if (!rec || !rec.blob) { showToast('No audio to download'); return; }
+        const base = (rec.title || 'recording').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'recording';
+        showToast('Preparing WAV…');
+        try {
+          triggerDownload(await blobToWavBlob(rec.blob), base + '.wav');
+          showToast('Saved ' + base + '.wav');
+        } catch (err) {
+          console.warn('WAV conversion failed', err);
+          const t = rec.blob.type || '';
+          const ext = t.includes('mp4') ? 'm4a' : t.includes('ogg') ? 'ogg' : 'webm';
+          triggerDownload(rec.blob, base + '.' + ext);
+          showToast('WAV conversion failed. Saved original .' + ext);
+        }
+      }
+
+      document.getElementById('btn-library').onclick = () => {
+        libraryList.innerHTML = '';
+        if (recordings.length === 0) {
+          libraryList.innerHTML = '<p style="color:#777; text-align:center; padding:20px;">No recordings yet.</p>';
+        } else {
+          recordings.forEach(rec => {
+            const item = document.createElement('div');
+            item.className = 'segment-card';
+            item.style.cursor = 'pointer';
+            item.innerHTML = `
+              <div>
+                <strong>${rec.title}</strong>
+                <div style="font-size:11px; color:#888; margin-top:2px;">
+                  ${formatTimestamp(rec.duration, false)} • ${rec.bookmarks?.length || 0} segments
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:14px;">
+                <button data-action="download" style="background:none; border:none; font-size:16px; cursor:pointer; padding:6px;" title="Download WAV">📥</button>
+                <button data-action="delete" style="background:none; border:none; color:#e11d48; font-size:14px; cursor:pointer; padding:6px;" title="Delete">🗑️</button>
+              </div>
+            `;
+            item.onclick = (e) => {
+              const btn = e.target.closest('button');
+              if (btn) {
+                e.stopPropagation();
+                if (btn.dataset.action === 'download') {
+                  downloadRecordingAsWav(rec);
+                  return;
+                }
+                dbDeleteRecording(rec.id);
+                recordings = recordings.filter(r => r.id !== rec.id);
+                updateLibraryCount();
+                item.remove();
+                if (activeRecording?.id === rec.id) selectRecording(recordings[0] || null);
+              } else {
+                selectRecording(rec);
+                modalLibrary.classList.remove('open');
+              }
+            };
+            libraryList.appendChild(item);
+          });
+        }
+        modalLibrary.classList.add('open');
+      };
+
+      document.getElementById('btn-close-library').onclick = () => modalLibrary.classList.remove('open');
+
+      // Offline support (needs HTTPS or localhost)
+      if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker registration failed', e));
+        });
+      }
+
+      // Initialize
+      init();
+    })();
+  </script>
+</body>
+</html>
